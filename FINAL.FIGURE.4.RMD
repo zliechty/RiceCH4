@@ -1,0 +1,120 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+setwd("G:/My Drive/for desktop/NEW.pruned.samples.noT3")
+map <- readRDS("map.pruned.n3.RDS") %>%
+  mutate(Days=Days+14)
+counts_clean <- readRDS("counts_clean.pruned.n3.RDS")
+RA_clean <- readRDS("RA_clean.pruned.n3.RDS")
+tax <- readRDS("G:/My Drive/for desktop/tax.RDS") %>% mutate("variable" = OTU_ID)
+
+LRT.C <- readRDS("G:/My Drive/for desktop/NEW.pruned.samples.noT3/DESEQ/LRT.RSBS/LRT.results.C.RDS") %>%
+  filter(Effect == "Compartment") %>% filter(p.adjusted < 0.05)
+LRT.S <- readRDS("G:/My Drive/for desktop/NEW.pruned.samples.noT3/DESEQ/LRT.RSBS/LRT.results.S.RDS") %>%
+  filter(Effect == "Compartment") %>% filter(p.adjusted < 0.05)
+LRT.RSBS.overlap <- LRT.C %>% filter(OTU_ID %in% LRT.S$OTU_ID)
+
+LRT.cultivar <- readRDS("G:/My Drive/for desktop/NEW.pruned.samples.noT3/DESEQ/LRT/LRT.results.RS.RDS") %>%
+  filter(p.adjusted < 0.05) %>%
+  filter(Effect == "Cultivar") %>%
+  inner_join(tax,by="OTU_ID")
+
+pwt.RSBS <- readRDS("G:/My Drive/for desktop/NEW.pruned.samples.noT3/DESEQ/compartment/WT.RSxBS.results.lfs.RDS") %>%
+  filter(OTU_ID %in% LRT.cultivar$OTU_ID) %>%
+  group_by(OTU_ID,Cultivar) %>%
+  summarise(avg.LogFC = mean(estimate)) %>%
+  spread(Cultivar, avg.LogFC) %>%
+  rename(Sabine.LogFC=Sabine,CLXL745.LogFC=CLXL745)
+
+ark.data <- RA_clean %>% t() %>% as.data.frame() %>%
+  rownames_to_column("SampleID") %>%
+  inner_join(map,., by = "SampleID") %>%
+  gather("OTU_ID","RA", (ncol(map)+1):ncol(.)) %>%
+  filter(OTU_ID %in% LRT.cultivar$OTU_ID)
+
+
+```
+
+```{r}
+enriched.fams<- c("Nakamurellaceae","BA008","Anaerolinaceae","Syntrophobacteraceae","Veillonellaceae","Methanocellaceae","Methanosarcinaceae")
+
+ark.data.z <- ark.data %>%
+  filter(Compartment %in% c("Rhizosphere","Bulk Soil")) %>%
+  mutate(Timepoint = as.factor(Timepoint)) %>%
+  mutate(Days=as.numeric(Timepoint)*14) %>%
+  mutate(Days=as.factor(Days)) %>%
+  group_by(OTU_ID,Days,Cultivar) %>%
+  summarise(RA = mean(RA)) %>%
+  ungroup() %>%
+  group_by(OTU_ID) %>%
+  mutate(mean.RA = mean(RA), sd.RA = sd(RA)) %>%
+  mutate("z.score" = (RA - mean.RA)/sd.RA) %>% ungroup() %>%
+  select(-RA,-mean.RA,-sd.RA) %>%
+  spread(Cultivar,z.score) %>%
+  mutate(CLXL745.diff = CLXL745-Soil) %>%
+  mutate(Sabine.diff = Sabine-Soil)  %>%
+  group_by(OTU_ID) %>%
+  summarise(CLXL745.diff = mean(CLXL745.diff), Sabine.diff = mean(Sabine.diff)) %>%
+  mutate(sig = case_when(OTU_ID %in% LRT.RSBS.overlap$OTU_ID ~ "Both",
+                         OTU_ID %in% LRT.S$OTU_ID ~ "Sabine Only",
+                         OTU_ID %in% LRT.C$OTU_ID ~ "CLXL745 Only",
+                         TRUE ~ "Neither")) %>%
+  inner_join(pwt.RSBS,by="OTU_ID") %>%
+  mutate(sig = fct_relevel(sig,"Both","Sabine Only","CLXL745 Only","Neither")) %>%
+  inner_join(tax,by="OTU_ID") %>%
+  mutate(Family2= ifelse(Family %in% enriched.fams,as.character(Family),"other"))
+ark.data.z.fam <- ark.data.z %>%
+  filter(Family2 !="other")
+
+
+
+
+
+my_plot <- ggplot(ark.data.z, aes(x=CLXL745.diff,y=Sabine.diff,shape=sig))+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  geom_abline(linetype="dashed")+
+  geom_point(size=7,color="grey69",alpha=.7)+
+  geom_point(data=ark.data.z.fam,aes(color=Family),size=7)+
+  coord_fixed(ratio=1)+
+  scale_shape_manual(values=c("\u25CF", "\u25D0", "\u25D2", "\u25CB"))+
+  theme_minimal()+
+  scale_color_brewer(palette = "Dark2")+
+  labs(shape = "Significant\nEnrichment",x="CLXL745 Average Seasonal Enrichment (z score RS - BS)",y="Sabine Average Seasonal Enrichment (z score RS - BS)")
+
+
+my_plot2 <- ggplot(ark.data.z, aes(x=CLXL745.LogFC,y=Sabine.LogFC,shape=sig))+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  geom_abline(linetype="dashed")+
+  geom_point(size=7,color="grey69",alpha=.7)+
+  geom_point(data=ark.data.z.fam,aes(color=Family),size=7)+
+  coord_fixed(ratio=1)+
+  scale_shape_manual(values=c("\u25CF", "\u25D0", "\u25D2", "\u25CB"))+
+  theme_minimal()+
+  scale_color_brewer(palette = "Dark2")+
+  labs(shape = "FDR < 0.05",x="CLXL745 Average Seasonal LogFC (RS vs. BS)",y="Sabine Average Seasonal LogFC (RS vs. BS)")
+
+#windowsFonts(Arial.Unicode.MS = windowsFont("Arial Unicode MS"))
+#windowsFonts(Papyrus = windowsFont("Papyrus"))
+
+ggsave(my_plot, filename = "example.example.pdf", device = cairo_pdf, family = "Arial Unicode MS",
+       width = 8, height = 6, units = "in")
+ggsave(my_plot2, filename = "example.example2.pdf", device = cairo_pdf, family = "Arial Unicode MS",
+       width = 8, height = 6, units = "in")
+```
+
+
+

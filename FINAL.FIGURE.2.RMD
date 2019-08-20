@@ -1,0 +1,399 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+setwd("G:/My Drive/for desktop/")
+tax <- readRDS("tax.RDS") %>% mutate("variable" = OTU_ID)
+
+setwd("G:/My Drive/for desktop/NEW.pruned.samples.noT3")
+map <- readRDS("map.pruned.n3.RDS")
+counts_clean <- readRDS("counts_clean.pruned.n3.RDS")
+RA_clean <- readRDS("RA_clean.pruned.n3.RDS")
+```
+
+```{r}
+library(reshape2)
+ark.data <- melt(cbind(map, t(RA_clean)), id.vars = names(map)) %>% 
+  inner_join(tax, by = "variable")
+```
+
+```{r}
+LRT.RS.mg <- readRDS("G:/My Drive/for desktop/NEW.pruned.samples.noT3/DESEQ/LRT/LRT.results.RS.RDS") %>% 
+  filter(p.adjusted < 0.05) %>%
+    mutate(asterisk = case_when(p.adjusted < .001 ~ "***",
+                              p.adjusted < .01 ~ "**",
+                              p.adjusted < .05 ~ "*",
+                              TRUE ~ "")) %>%
+  filter(Effect == "Cultivar") %>%
+  filter(OTU_ID %in% c("139580","706555")) %>%
+  inner_join(tax,by="OTU_ID") %>%
+  mutate(OTU_ID2=paste(OTU_ID,"\n",Genus)) %>%
+  mutate(p.print=paste("P =",round(p.adjusted,3)))
+
+ark.data %>%
+  mutate(value = value/10) %>%
+  filter(Compartment == "Rhizosphere")%>%
+  filter(OTU_ID %in% c("139580","706555")) %>%
+  group_by(Timepoint,Cultivar,OTU_ID,Genus) %>%
+  summarise(mean.RA = mean(value),
+            median.RA = median(value),
+            sd =sd(value),
+            se=sd(value)/sqrt(n()),
+            low.q=quantile(value,0.25),
+            high.q=quantile(value,0.75)) %>%
+  mutate(sd = ifelse(is.na(sd),0,sd)) %>%
+  mutate(se = ifelse(is.na(se),0,se)) %>%
+  mutate(OTU_ID2=paste(OTU_ID,"\n",Genus)) %>%
+  ggplot(., aes()) +
+  geom_ribbon(aes(x=as.factor(Timepoint),ymin = mean.RA-se, ymax = mean.RA+se,fill=Cultivar,color=NA,group=Cultivar),alpha=.2) +
+  geom_line(size = 1,aes(x=as.factor(Timepoint),y=mean.RA, color = Cultivar,group = Cultivar))+
+  geom_text(data=LRT.RS.mg,aes(x=-Inf,y=Inf,hjust=-0.1,vjust=1.2,label=p.print),fontface=1,color="red",size=6)+
+  theme_minimal() +
+  facet_wrap(~OTU_ID2)+
+  scale_color_brewer(palette = "Set1") +
+  labs(x="Timepoint", y = "Relative Abundance\nin the Rhizosphere")+
+  theme(legend.text = element_text(size=12),
+        axis.title = element_text(size=16),
+        axis.text=element_text(size=12),
+        strip.text.x=element_text(size=20))
+```
+
+#make g2r.mgmt and g2r.mg
+```{r}
+g2r <- read.table("G:/My Drive/for desktop/NEW.pruned.samples.noT3/FAPROTAX/g2r.table2",sep="\t",header=T) %>% 
+  rename(OTU_ID = record) %>%
+  filter(OTU_ID %in% row.names(RA_clean)) %>%
+  gather("trait","pres.ab",2:ncol(.))
+g2r.mgmt <- g2r %>%
+  filter(trait == "methanogenesis"|trait == "methanotrophy") %>%
+  filter(pres.ab == 1) %>%
+  inner_join(tax,by="OTU_ID") %>%
+  filter(Genus !="Pleomorphomonas") %>%
+  arrange(Kingdom,Phylum,Class,Order,Family,Genus,Species)
+g2r.mg <- g2r.mgmt %>%
+  filter(trait == "methanogenesis")
+
+```
+
+```{r}
+ark.data %>%
+  mutate(RA = value) %>%
+  filter(OTU_ID %in% g2r.mgmt$OTU_ID) %>%
+  mutate(trait=ifelse(OTU_ID %in% g2r.mg$OTU_ID, "methanogenesis","methanotrophy")) %>%
+  inner_join(tax,by="OTU_ID") %>%
+  group_by(SampleID,Timepoint,Compartment,Cultivar,Plot,trait,Rep) %>%
+  summarise(RA = sum(RA)/10) %>%
+  ungroup() %>%
+  group_by(Timepoint,Compartment,Cultivar,trait) %>%
+  summarise(mean.RA = mean(RA),sd.RA = sd(RA), se.RA = sd(RA)/sqrt(n())) %>%
+  ungroup() %>%
+  mutate(Compartment = case_when(Compartment == "Bulk Soil" ~ "Rhizosphere +\nBulk Soil",
+                                 Compartment == "Rhizosphere" ~ "Rhizosphere +\nBulk Soil",
+                                 Compartment == "Rhizoplane" ~ "Rhizoplane",
+                                 Compartment == "Endosphere" ~ "Endosphere")) %>%
+  mutate(Compartment = fct_relevel(Compartment,"Rhizosphere +\nBulk Soil","Rhizoplane","Endosphere")) %>%
+  mutate(Timepoint = Timepoint*14) %>%
+  ggplot(., aes(x=as.factor(Timepoint), y= mean.RA,color=Cultivar,group=Cultivar))+
+  geom_ribbon(aes(ymin = mean.RA-se.RA, ymax = mean.RA+se.RA,fill=Cultivar,color=NA),alpha=.2) +
+  geom_line(size = 1)+
+  facet_grid(trait~Compartment,scales="free")+
+  scale_fill_brewer(palette = "Set1")+
+  scale_color_brewer(palette = "Set1")+
+  theme_minimal()+
+  labs(y="Relative Abundance",x="Days After Germination")
+```
+
+
+```{r}
+pie.colors <- c(RColorBrewer::brewer.pal(9,"Oranges")[c(4,6,9)],
+                RColorBrewer::brewer.pal(9,"Purples")[c(3,5,7,9)],
+                "grey25")
+ark.data %>%
+  mutate(RA = value) %>%
+  filter(Compartment != "Bulk Soil") %>%
+  filter(OTU_ID %in% g2r.mgmt$OTU_ID) %>%
+  mutate(trait=ifelse(OTU_ID %in% g2r.mg$OTU_ID, "methanogenesis","methanotrophy")) %>%
+  group_by(Cultivar,Timepoint,Compartment,Genus,trait) %>%
+  summarise(genus.RA = sum(RA))%>%
+  group_by(Cultivar,Timepoint,Compartment,trait)%>%
+  mutate(max.RA = sum(genus.RA))%>%
+  mutate(ratio = genus.RA/max.RA)%>%
+  ungroup()%>%
+  mutate(Compartment = fct_relevel(Compartment,"Rhizosphere","Rhizoplane","Endosphere")) %>%
+  mutate(Genus = fct_relevel(Genus,"Methanobacterium","Methanocella","Methanosarcina",
+                             "Crenothrix","Methylocaldum","Methylomonas","Methylosinus","unclassified")) %>%
+  ggplot(., aes(x="",y=ratio,fill=Genus))+
+  geom_bar(stat="identity",position = "fill")+
+  coord_polar("y",start=0)+
+  facet_grid(trait+Cultivar~Compartment)+
+  scale_fill_manual(values = pie.colors)+
+  theme_minimal()+
+  theme(axis.text.x = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+
+library(ggalluvial)
+ark.data %>%
+  mutate(RA=value) %>%
+  filter(Compartment != "Bulk Soil") %>%
+  filter(OTU_ID %in% g2r.mgmt$OTU_ID) %>%
+  mutate(trait=ifelse(OTU_ID %in% g2r.mg$OTU_ID, "methanogenesis","methanotrophy")) %>%
+  group_by(Timepoint,Compartment,Genus,trait) %>%
+  summarise(genus.RA = sum(RA))%>%
+  group_by(Timepoint,Compartment,trait)%>%
+  mutate(max.RA = sum(genus.RA))%>%
+  mutate(ratio = genus.RA/max.RA)%>%
+  group_by(Timepoint,Compartment,trait,Genus)%>%
+  summarise(ratio = mean(ratio)) %>%
+  ungroup()%>%
+  mutate(Timepoint = Timepoint*14) %>%
+  mutate(Compartment = fct_relevel(Compartment,"Rhizosphere","Rhizoplane","Endosphere")) %>%
+  mutate(Genus = fct_relevel(Genus,"Methanobacterium","Methanocella","Methanosarcina",
+                             "Crenothrix","Methylocaldum","Methylomonas","Methylosinus","unclassified")) %>%
+  ggplot(.,aes(x= as.factor(Timepoint),y=ratio,alluvium=Genus))+
+  geom_alluvium(aes(fill = Genus),color="black")+
+  facet_grid(Compartment~trait)+
+  scale_fill_manual(values = pie.colors)+
+  theme_minimal()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+```
+
+```{r}
+a <- ark.data %>%
+  mutate(value = value/10) %>%
+  filter(Compartment == "Rhizosphere"|Compartment == "Bulk Soil")%>%
+  filter(OTU_ID %in% c("139580","706555")) %>%
+  group_by(Timepoint,Cultivar,OTU_ID,Genus) %>%
+  summarise(mean.RA = mean(value),
+            median.RA = median(value),
+            sd =sd(value),
+            se=sd(value)/sqrt(n())) %>%
+  mutate(sd = ifelse(is.na(sd),0,sd)) %>%
+  mutate(se = ifelse(is.na(se),0,se)) %>%
+  mutate(OTU_ID2=paste(OTU_ID,"\n",Genus)) %>%
+  ungroup() %>%
+  mutate(Timepoint = Timepoint*14) %>%
+  ggplot(., aes()) +
+  geom_ribbon(aes(x=as.factor(Timepoint),ymin = mean.RA-se, ymax = mean.RA+se,fill=Cultivar,group=Cultivar),color=NA,alpha=.2) +
+  geom_line(size = 1,aes(x=as.factor(Timepoint),y=mean.RA, color = Cultivar,group = Cultivar))+
+  geom_text(data=LRT.RS.mg,aes(x=-Inf,y=Inf,hjust=-0.2,vjust=1.6,label=p.print),fontface=2,color="red",show.legend = FALSE)+
+  theme_minimal() +
+    facet_wrap(~OTU_ID2)+
+  scale_fill_brewer(palette = "Set1") +
+  scale_color_brewer(palette = "Set1") +
+  labs(x="Days After Germination", y = "Relative Abundance\nin the Rhizosphere")+
+  theme(panel.border = element_rect(colour = "black", fill=NA))
+
+  
+
+
+trait.anova <- readRDS("G:/My Drive/for desktop/NEW.pruned.samples.noT3/FAPROTAX.trait.ANOVA.RDS") %>%
+  filter(trait %in% c("methanogenesis","methanotrophy")) %>%
+  mutate(p.print = paste("P =",round(p.cult.fdr,3))) %>%
+  mutate(bold=ifelse(p.cult.fdr < .05,2,1)) %>%
+  mutate(asterisk = case_when(p.cult.fdr < .001 ~ "***",
+                              p.cult.fdr < .01 ~ "**",
+                              p.cult.fdr < .05 ~ "*",
+                              TRUE ~ "")) %>%
+  mutate(Compartment = ifelse(Compartment == "Rhizosphere","Rhizosphere +\nBulk Soil",as.character(Compartment))) %>%
+  mutate(Compartment = fct_relevel(Compartment,"Rhizosphere +\nBulk Soil","Rhizoplane","Endosphere"))
+
+
+b <- ark.data %>%
+  mutate(RA = value) %>%
+  filter(OTU_ID %in% g2r.mgmt$OTU_ID) %>%
+  mutate(trait=ifelse(OTU_ID %in% g2r.mg$OTU_ID, "methanogenesis","methanotrophy")) %>%
+  inner_join(tax,by="OTU_ID") %>%
+  group_by(SampleID,Timepoint,Compartment,Cultivar,Plot,trait,Rep) %>%
+  summarise(RA = sum(RA)/10) %>%
+  ungroup() %>%
+  group_by(Timepoint,Compartment,Cultivar,trait) %>%
+  summarise(mean.RA = mean(RA),sd.RA = sd(RA), se.RA = sd(RA)/sqrt(n())) %>%
+  ungroup() %>%
+  mutate(Compartment = case_when(Compartment == "Bulk Soil" ~ "Rhizosphere +\nBulk Soil",
+                                 Compartment == "Rhizosphere" ~ "Rhizosphere +\nBulk Soil",
+                                 Compartment == "Rhizoplane" ~ "Rhizoplane",
+                                 Compartment == "Endosphere" ~ "Endosphere")) %>%
+  mutate(Compartment = fct_relevel(Compartment,"Rhizosphere +\nBulk Soil","Rhizoplane","Endosphere")) %>%
+  mutate(Timepoint = Timepoint*14) %>%
+  mutate(Cultivar = case_when(Cultivar == "Sabine" ~ "Sabine\n(high emitter)",
+                              Cultivar == "CLXL745" ~ "CLXL745\n(low emitter)",
+                              Cultivar == "Soil" ~ "Bulk Soil")) %>%
+  mutate(Cultivar = fct_relevel(Cultivar, "CLXL745\n(low emitter)","Sabine\n(high emitter)","Bulk Soil")) %>%
+  ggplot(., aes())+
+  geom_ribbon(aes(x=as.factor(Timepoint),ymin = mean.RA-se.RA, ymax = mean.RA+se.RA,fill = Cultivar,group=Cultivar),color=NA,alpha=.2) +
+  geom_line(size = 1,aes(x=as.factor(Timepoint), y= mean.RA,group=Cultivar,color=Cultivar))+
+  scale_fill_brewer(palette = "Set1")+
+  scale_color_brewer(palette = "Set1")+
+  ggnewscale::new_scale_color() +
+  geom_text(data=trait.anova,aes(x=-Inf,y=Inf,hjust=-0.2,vjust=1.6,label=p.print,color=p.cult.fdr.sig,fontface=bold),show.legend = FALSE)+
+  scale_color_manual(values = c("grey50","red"))+
+  facet_grid(trait~Compartment,scales="free")+
+  theme_minimal()+
+  labs(y="Relative Abundance",x="Days After Germination") +
+  theme(panel.border = element_rect(colour = "black", fill=NA))
+
+
+c <- ark.data %>%
+  mutate(RA=value) %>%
+  filter(Compartment != "Bulk Soil") %>%
+  filter(OTU_ID %in% g2r.mgmt$OTU_ID) %>%
+  mutate(trait=ifelse(OTU_ID %in% g2r.mg$OTU_ID, "methanogenesis","methanotrophy")) %>%
+  group_by(Timepoint,Compartment,Genus,trait) %>%
+  summarise(genus.RA = sum(RA))%>%
+  group_by(Timepoint,Compartment,trait)%>%
+  mutate(max.RA = sum(genus.RA))%>%
+  mutate(ratio = genus.RA/max.RA)%>%
+  group_by(Timepoint,Compartment,trait,Genus)%>%
+  summarise(ratio = mean(ratio)) %>%
+  ungroup()%>%
+  mutate(Timepoint = Timepoint*14) %>%
+  mutate(Compartment = fct_relevel(Compartment,"Rhizosphere","Rhizoplane","Endosphere")) %>%
+  mutate(Genus = fct_relevel(Genus,"Methanobacterium","Methanocella","Methanosarcina",
+                             "Crenothrix","Methylocaldum","Methylomonas","Methylosinus","unclassified")) %>%
+  ggplot(.,aes(x= as.factor(Timepoint),y=ratio,alluvium=Genus))+
+  geom_alluvium(aes(fill = Genus),color="white", size = 1)+
+  facet_grid(Compartment~trait)+
+  scale_fill_manual(values = pie.colors)+
+  theme_minimal()+
+  labs(x="Days After Germination")+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+
+left <- cowplot::plot_grid(a+theme(legend.position = "none"),
+                   b+theme(legend.position = "none"),
+                   nrow = 2, align = "v", axis = "lr", rel_heights = c(1,2))
+cowplot::plot_grid(left,c+theme(legend.position = "top")+guides(fill=guide_legend(ncol=3)),ncol=2,rel_widths = c(1.5,1),
+                   align = "h")
+```
+
+
+```{r}
+left.top <- cowplot::plot_grid(a+theme(legend.position = "none"),
+                               cowplot::get_legend(b+theme(legend.text = element_text(size=12))),ncol=2,rel_widths = c(2,1))
+
+left.bottom <- cowplot::plot_grid(NULL,b+theme(legend.position = "none"),rel_widths = c(1,25))
+
+left <- cowplot::plot_grid(left.top,
+                           left.bottom,
+                           nrow = 2,
+                           rel_heights = c(1,2))
+cowplot::plot_grid(left,
+                   c + 
+                     theme(legend.position = "top",axis.text.y = element_blank()) + 
+                     guides(fill=guide_legend(ncol=3)),
+                   ncol=2,rel_widths = c(1.5,1),align = "h")
+```
+
+```{r}
+a <- ark.data %>%
+  mutate(value = value/10) %>%
+  filter(Compartment == "Rhizosphere"|Compartment == "Bulk Soil")%>%
+  filter(OTU_ID %in% c("139580","706555")) %>%
+  group_by(Timepoint,Cultivar,OTU_ID,Genus) %>%
+  summarise(mean.RA = mean(value),
+            median.RA = median(value),
+            sd =sd(value),
+            se=sd(value)/sqrt(n())) %>%
+  mutate(sd = ifelse(is.na(sd),0,sd)) %>%
+  mutate(se = ifelse(is.na(se),0,se)) %>%
+  mutate(OTU_ID2=paste(OTU_ID,"\n",Genus)) %>%
+  ungroup() %>%
+  mutate(Timepoint = Timepoint*14) %>%
+  ggplot(., aes()) +
+  geom_ribbon(aes(x=as.factor(Timepoint),ymin = mean.RA-se, ymax = mean.RA+se,fill=Cultivar,group=Cultivar),color=NA,alpha=.2) +
+  geom_line(size = 1,aes(x=as.factor(Timepoint),y=mean.RA, color = Cultivar,group = Cultivar))+
+  geom_text(data=LRT.RS.mg,aes(x=4,y=Inf,vjust=1.2,label=asterisk),fontface=2,size=7,show.legend = FALSE)+
+  theme_minimal() +
+    facet_wrap(~OTU_ID2)+
+  scale_fill_brewer(palette = "Set1") +
+  scale_color_brewer(palette = "Set1") +
+  labs(x="Days After Germination", y = "Relative Abundance\nin the Rhizosphere")+
+  theme(panel.border = element_rect(colour = "black", fill=NA))
+
+b <- ark.data %>%
+  mutate(RA = value) %>%
+  filter(OTU_ID %in% g2r.mgmt$OTU_ID) %>%
+  mutate(trait=ifelse(OTU_ID %in% g2r.mg$OTU_ID, "methanogenesis","methanotrophy")) %>%
+  inner_join(tax,by="OTU_ID") %>%
+  group_by(SampleID,Timepoint,Compartment,Cultivar,Plot,trait,Rep) %>%
+  summarise(RA = sum(RA)/10) %>%
+  ungroup() %>%
+  group_by(Timepoint,Compartment,Cultivar,trait) %>%
+  summarise(mean.RA = mean(RA),sd.RA = sd(RA), se.RA = sd(RA)/sqrt(n())) %>%
+  ungroup() %>%
+  mutate(Compartment = case_when(Compartment == "Bulk Soil" ~ "Rhizosphere +\nBulk Soil",
+                                 Compartment == "Rhizosphere" ~ "Rhizosphere +\nBulk Soil",
+                                 Compartment == "Rhizoplane" ~ "Rhizoplane",
+                                 Compartment == "Endosphere" ~ "Endosphere")) %>%
+  mutate(Compartment = fct_relevel(Compartment,"Rhizosphere +\nBulk Soil","Rhizoplane","Endosphere")) %>%
+  mutate(Timepoint = Timepoint*14) %>%
+  mutate(Cultivar = case_when(Cultivar == "Sabine" ~ "Sabine\n(high emitter)",
+                              Cultivar == "CLXL745" ~ "CLXL745\n(low emitter)",
+                              Cultivar == "Soil" ~ "Bulk Soil")) %>%
+  mutate(Cultivar = fct_relevel(Cultivar, "CLXL745\n(low emitter)","Sabine\n(high emitter)","Bulk Soil")) %>%
+  ggplot(., aes())+
+  geom_ribbon(aes(x=as.factor(Timepoint),ymin = mean.RA-se.RA, ymax = mean.RA+se.RA,fill = Cultivar,group=Cultivar),color=NA,alpha=.2) +
+  geom_line(size = 1,aes(x=as.factor(Timepoint), y= mean.RA,group=Cultivar,color=Cultivar))+
+  scale_fill_brewer(palette = "Set1")+
+  scale_color_brewer(palette = "Set1")+
+  geom_text(data=trait.anova,aes(x=4,y=Inf,vjust=1.2,label=asterisk,fontface=bold),size=7,show.legend = FALSE)+
+  facet_grid(trait~Compartment,scales="free")+
+  theme_minimal()+
+  labs(y="Relative Abundance",x="Days After Germination") +
+  theme(panel.border = element_rect(colour = "black", fill=NA))
+
+c <- ark.data %>%
+  mutate(RA=value) %>%
+  filter(Compartment != "Bulk Soil") %>%
+  filter(OTU_ID %in% g2r.mgmt$OTU_ID) %>%
+  mutate(trait=ifelse(OTU_ID %in% g2r.mg$OTU_ID, "methanogenesis","methanotrophy")) %>%
+  group_by(Timepoint,Compartment,Genus,trait) %>%
+  summarise(genus.RA = sum(RA))%>%
+  group_by(Timepoint,Compartment,trait)%>%
+  mutate(max.RA = sum(genus.RA))%>%
+  mutate(ratio = genus.RA/max.RA)%>%
+  group_by(Timepoint,Compartment,trait,Genus)%>%
+  summarise(ratio = mean(ratio)) %>%
+  ungroup()%>%
+  mutate(Timepoint = Timepoint*14) %>%
+  mutate(Compartment = fct_relevel(Compartment,"Rhizosphere","Rhizoplane","Endosphere")) %>%
+  mutate(Genus = fct_relevel(Genus,"Methanobacterium","Methanocella","Methanosarcina",
+                             "Crenothrix","Methylocaldum","Methylomonas","Methylosinus","unclassified")) %>%
+  ggplot(.,aes(x= as.factor(Timepoint),y=ratio,alluvium=Genus))+
+  geom_alluvium(aes(fill = Genus),color="white", size = 1)+
+  facet_grid(Compartment~trait)+
+  scale_fill_manual(values = pie.colors)+
+  theme_minimal()+
+  labs(x="Days After Germination")+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+
+left.top <- cowplot::plot_grid(a+theme(legend.position = "none"),
+                               cowplot::get_legend(b+theme(legend.text = element_text(size=12))),ncol=2,rel_widths = c(2,1))
+
+left.bottom <- cowplot::plot_grid(NULL,b+theme(legend.position = "none"),rel_widths = c(1,25))
+
+left <- cowplot::plot_grid(left.top,
+                           left.bottom,
+                           nrow = 2,
+                           rel_heights = c(1,2))
+cowplot::plot_grid(left,
+                   c + 
+                     theme(legend.position = "top",axis.text.y = element_blank()) + 
+                     guides(fill=guide_legend(ncol=3)),
+                   ncol=2,rel_widths = c(1.5,1),align = "h")
+```
+
+
+
+

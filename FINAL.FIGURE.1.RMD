@@ -1,0 +1,284 @@
+---
+title: "Methane Paper Figure 1 - Beta Diversity"
+output: html_notebook
+---
+
+#Load the data
+
+```{r}
+library(tidyverse)
+library(vegan)
+library(ape)
+```
+
+```{r}
+setwd("G:/My Drive/for desktop/")
+tax <- readRDS("tax.RDS") %>% mutate("variable" = OTU_ID)
+
+setwd("G:/My Drive/for desktop/NEW.pruned.samples.noT3")
+map <- readRDS("map.pruned.n3.RDS") %>%
+  mutate(Days=Days+14)
+counts_clean <- readRDS("counts_clean.pruned.n3.RDS")
+RA_clean <- readRDS("RA_clean.pruned.n3.RDS")
+```
+
+```{r}
+library(reshape2)
+ark.data <- melt(cbind(map, t(RA_clean)), id.vars = names(map)) %>% 
+  inner_join(tax, by = "variable")
+```
+
+# Beta Diversity
+## Permanova
+```{r}
+library(vegan)
+map_noBS <- filter(map, Compartment != "Bulk Soil")
+RA_clean_noBS <- RA_clean[,colnames(RA_clean) %in% map_noBS$SampleID]
+```
+
+```{r}
+ark.pc <- capscale(t(log2(RA_clean_noBS + 1)) ~ Cultivar + Timepoint + Condition(Compartment), data = map_noBS)
+anova(ark.pc, by = "term")
+(ark.pc$CCA$eig/sum(ark.pc$CCA$eig))*100
+cap_variation <- (ark.pc$CCA$eig/sum(ark.pc$CCA$eig))*100
+cap_variation_1 <- paste("CAP1 (", as.character(round(cap_variation[1], 1)), "%)", sep = "")
+cap_variation_2 <- paste("CAP2 (", as.character(round(cap_variation[2], 1)), "%)", sep = "")
+cap_variation_3 <- paste("CAP3 (", as.character(round(cap_variation[3], 1)), "%)", sep = "")
+cap_variation_4 <- paste("CAP4 (", as.character(round(cap_variation[4], 1)), "%)", sep = "")
+
+ark.pc_axes <- cbind(map_noBS, scores(ark.pc, choices = c(1:4))$sites)
+
+ark.pc_axes.grouped2 <- ark.pc_axes %>%
+  group_by(Timepoint,Cultivar,Compartment) %>%
+  summarise(CAP2 = mean(CAP2)) %>%
+  ungroup() %>%
+  mutate(Timepoint = ifelse(Timepoint > 3, Timepoint -1,Timepoint))
+
+ark.pc_axes %>%
+  mutate(Timepoint = ifelse(Timepoint > 3, Timepoint -1,Timepoint)) %>%
+  ggplot(., aes(x = Timepoint, y = CAP2, color = Cultivar,fill=Cultivar)) +
+  geom_jitter(alpha = .5,width = .2,size = 2) +
+  geom_smooth(alpha=.25)+
+  theme_minimal() +
+  scale_color_brewer(palette = "Set1") +
+  labs(y = cap_variation_2, x = "Days after Germination")+
+  facet_grid(.~Compartment) +
+  theme(text = element_text(size = 15),
+        axis.text.x = element_blank())
+```
+
+
+```{r}
+setwd("G:/My Drive/for desktop/NEW.pruned.samples.noT3/DESEQ/LRT/")
+LRT <- rbind(
+  readRDS("LRT.results.ES.RDS") %>% mutate(Compartment = "Endosphere"),
+  readRDS("LRT.results.RP.RDS") %>% mutate(Compartment = "Rhizoplane"),
+  readRDS("LRT.results.RS.RDS") %>% mutate(Compartment = "Rhizosphere")) %>% 
+  filter(p.adjusted < 0.05) %>%
+  filter(Effect == "Cultivar") %>%
+  inner_join(tax, by = "OTU_ID")
+LRT.RS <- LRT %>% filter(Compartment == "Rhizosphere")
+LRT.RP <- LRT %>% filter(Compartment == "Rhizoplane")
+LRT.ES <- LRT %>% filter(Compartment == "Endosphere")
+```
+
+```{r}
+setwd("G:/My Drive/for desktop/NEW.pruned.samples.noT3/DESEQ/WT/")
+WT.RS <- readRDS("WT.results.lfs.RS.RDS") %>% filter(OTU_ID %in% LRT.RS$OTU_ID) %>% select(Timepoint,Compartment,OTU_ID,LogFC=estimate)
+WT.RP <- readRDS("WT.results.lfs.RP.RDS") %>% filter(OTU_ID %in% LRT.RP$OTU_ID) %>% select(Timepoint,Compartment,OTU_ID,LogFC=estimate)
+WT.ES <- readRDS("WT.results.lfs.ES.RDS") %>% filter(OTU_ID %in% LRT.ES$OTU_ID) %>% select(Timepoint,Compartment,OTU_ID,LogFC=estimate)
+```
+
+
+```{r}
+LRT.comp <- LRT %>% mutate(OTU.Comp = paste(OTU_ID,Compartment,sep="."))
+ark.data <- ark.data %>%
+  rename(RA=value) %>%
+  mutate(OTU.Comp = paste(OTU_ID,Compartment,sep=".")) %>%
+  filter(OTU.Comp %in% LRT.comp$OTU.Comp)
+
+ark.data.z <- ark.data %>%
+  filter(Compartment !="Bulk Soil") %>%
+  mutate(Timepoint = as.factor(Timepoint)) %>%
+  mutate(Days=as.numeric(Timepoint)*14) %>%
+  mutate(Days=as.factor(Days)) %>%
+  group_by(OTU_ID,Days,Cultivar,Compartment) %>%
+  summarise(RA = mean(RA)) %>%
+  ungroup() %>%
+  group_by(OTU_ID,Compartment) %>%
+  mutate(mean.RA = mean(RA), sd.RA = sd(RA)) %>%
+  mutate("z.score" = (RA - mean.RA)/sd.RA) %>% ungroup() %>%
+  select(-RA,-mean.RA,-sd.RA) %>%
+  spread(Cultivar,z.score) %>%
+  mutate(Cultivar.diff = Sabine-CLXL745)
+```
+
+
+```{r}
+Sabine.enriched.otus <- rbind(WT.ES %>% mutate(Compartment = "Endosphere"),
+      WT.RS %>% mutate(Compartment = "Rhizosphere"),
+      WT.RP %>% mutate(Compartment = "Rhizoplane")) %>%
+  group_by(OTU_ID,Compartment) %>%
+  mutate(avg.LogFC = mean(LogFC)) %>%
+  filter(avg.LogFC > 0) %>%
+  mutate(OTU.Comp = paste(OTU_ID,Compartment,sep="."))
+
+ark.data %>%
+  mutate(OTU.Comp = paste(OTU_ID,Compartment,sep=".")) %>%
+  mutate(seasonal.trend = ifelse(OTU.Comp %in% Sabine.enriched.otus$OTU.Comp,"Sabine Enriched","CLXL745 Enriched")) %>%
+  group_by(seasonal.trend,SampleID,Cultivar,Timepoint,Compartment) %>%
+  summarise(RA=sum(RA)/10) %>%
+  ungroup() %>%
+  group_by(seasonal.trend,Cultivar,Timepoint,Compartment) %>%
+  summarise(mean.RA=mean(RA),sd.RA = sd(RA), se.RA = sd(RA)/sqrt(n())) %>%
+  ggplot(.,aes(x=as.factor(Timepoint),y=mean.RA,fill=Cultivar))+
+  geom_bar(stat="identity",position = "dodge")+
+  geom_errorbar(aes(ymin=mean.RA-se.RA,ymax=mean.RA+se.RA,width=.2),position = position_dodge(width=.9))+
+  facet_grid(seasonal.trend~Compartment,scales = "free",space = "free") +
+  scale_fill_brewer(palette = "Set1") +
+  theme_minimal()
+
+ark.data %>%
+  mutate(OTU.Comp = paste(OTU_ID,Compartment,sep=".")) %>%
+  mutate(seasonal.trend = ifelse(OTU.Comp %in% Sabine.enriched.otus$OTU.Comp,"Sabine Enriched","CLXL745 Enriched")) %>%
+  group_by(seasonal.trend,SampleID,Cultivar,Timepoint,Compartment) %>%
+  summarise(RA=sum(RA)/10) %>%
+  ungroup() %>%
+  mutate(Timepoint=as.factor(Timepoint)) %>%
+  group_by(seasonal.trend,Cultivar,Timepoint,Compartment) %>%
+  summarise(mean.RA=mean(RA),sd.RA = sd(RA), se.RA = sd(RA)/sqrt(n())) %>%
+  ggplot(.,aes(x=Timepoint,y=mean.RA,color=Cultivar,group=Cultivar))+
+  geom_line()+
+  geom_errorbar(aes(ymin=mean.RA-se.RA,ymax=mean.RA+se.RA,width=.1))+
+  facet_grid(seasonal.trend~Compartment,scales = "free",space = "free")+
+  scale_fill_brewer(palette = "Set1") +
+  theme_minimal()
+
+```
+
+```{r}
+ark.data.z.RS <- ark.data.z %>% filter(Compartment == "Rhizosphere")
+ark.data.z.ES <- ark.data.z %>% filter(Compartment == "Endosphere")
+ark.data.z.RP <- ark.data.z %>% filter(Compartment == "Rhizoplane")
+
+z.func <- function(ark.data.z){
+  ark.data.z %>%
+    spread(key = OTU_ID, value = LogFC) %>% ungroup() %>% as.data.frame() %>%
+    mutate(keyID = paste(Compartment,Timepoint,sep = ".")) %>%
+    column_to_rownames("keyID") %>%
+    select(-Timepoint,-Compartment) %>%
+    as.matrix()
+}
+
+z.RS <- z.func(WT.RS)
+z.RP <- z.func(WT.RP)
+z.ES <- z.func(WT.ES)
+
+RS.dist <- dist(t(z.RS), method = "euclidean")
+hc.RS <- hclust(RS.dist, method = "complete" )
+RP.dist <- dist(t(z.RP), method = "euclidean")
+hc.RP <- hclust(RP.dist, method = "complete" )
+ES.dist <- dist(t(z.ES), method = "euclidean")
+hc.ES <- hclust(ES.dist, method = "complete" )
+
+```
+
+
+```{r}
+library(RColorBrewer)
+otu.order.func <- function(hc, ark.z){
+  ord.names <- hc$labels[hc$order]
+  heatmap.order <- data.frame(OTU_ID = ord.names, OTU_order = 1:length(ord.names))
+  ark.z %>%
+    inner_join(heatmap.order, by = "OTU_ID") %>%
+    mutate(OTU_order = as.integer(OTU_order))
+} 
+
+ark.data.z.RS <- otu.order.func(hc.RS,ark.data.z.RS)
+ark.data.z.RP <- otu.order.func(hc.RP,ark.data.z.RP)
+ark.data.z.ES <- otu.order.func(hc.ES,ark.data.z.ES)
+
+```
+
+
+```{r}
+clusters <- rbind(ark.data.z.RS,ark.data.z.RP,ark.data.z.ES) %>%
+  mutate(OTU_ID2 = paste(Compartment,OTU_ID)) %>%
+  mutate(Cultivar.diff2 = case_when(Cultivar.diff < -3 ~ -3,
+                              Cultivar.diff > 3 ~ 3,
+                              TRUE ~ Cultivar.diff))
+ggplot(clusters, aes(x=as.factor(Days),y=reorder(OTU_ID2, OTU_order))) +
+  geom_tile(aes(fill = Cultivar.diff2)) +
+  scale_fill_gradient2(low = brewer.pal(3,"Set1")[1], mid = "white", high = brewer.pal(3,"Set1")[2], midpoint = 0) +
+  facet_grid(Compartment~.,space = "free",scales = "free") +
+  theme_minimal()+
+  labs(x = "Days After Germination") +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y=element_blank(),
+        legend.position = "bottom",
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA))
+
+```
+
+```{r}
+a <- ark.pc_axes %>%
+  mutate(Timepoint = ifelse(Timepoint > 3, Timepoint -1,Timepoint)) %>%
+  ggplot(., aes(x = Timepoint, y = CAP2, color = Cultivar,fill=Cultivar)) +
+  geom_jitter(alpha = .5,width = .2,size = 2) +
+  geom_smooth(alpha=.25)+
+  theme_minimal() +
+  scale_color_brewer(palette = "Set1") +
+  labs(y = cap_variation_2, x = "Days after Germination")+
+  facet_grid(.~Compartment) +
+  theme(#text = element_text(size = 15),
+        panel.border = element_rect(colour = "black", fill=NA),
+        axis.text.x = element_blank(),
+        axis.title.x = element_blank())
+b <- ggplot(clusters, aes(x=as.factor(Days),y=reorder(OTU_ID2, OTU_order))) +
+  geom_tile(aes(fill = Cultivar.diff2)) +
+  scale_fill_gradient2(low = brewer.pal(3,"Set1")[1], mid = "white", high = brewer.pal(3,"Set1")[2], midpoint = 0) +
+  facet_grid(Compartment~.,space = "free",scales = "free") +
+  theme_minimal()+
+  labs(x = "Days After Germination", fill = "Difference in z score\n(Sabine - CLXL745)") +
+  guides(fill=guide_colorbar(title.position = "top",title.hjust = .5))+
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y=element_blank(),
+        legend.position = "bottom",
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        panel.background = element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA))
+c <- ark.data %>%
+  mutate(OTU.Comp = paste(OTU_ID,Compartment,sep=".")) %>%
+  mutate(seasonal.trend = ifelse(OTU.Comp %in% Sabine.enriched.otus$OTU.Comp,"Sabine Enriched","CLXL745 Enriched")) %>%
+  group_by(seasonal.trend,SampleID,Cultivar,Timepoint,Compartment) %>%
+  summarise(RA=sum(RA)/10) %>%
+  ungroup() %>%
+  group_by(seasonal.trend,Cultivar,Timepoint,Compartment) %>%
+  summarise(mean.RA=mean(RA),sd.RA = sd(RA), se.RA = sd(RA)/sqrt(n())) %>%
+  ungroup() %>%
+  mutate(Timepoint = Timepoint *14) %>%
+  mutate(seasonal.trend = ifelse(seasonal.trend=="Sabine Enriched","Sabine\nEnriched","CLXL745\nEnriched"))%>%
+  mutate(seasonal.trend=fct_relevel(seasonal.trend,"Sabine\nEnriched","CLXL745\nEnriched")) %>%
+  ggplot(.,aes(x=as.factor(Timepoint),y=mean.RA,fill=Cultivar))+
+  geom_bar(stat="identity",position = "dodge")+
+  geom_errorbar(aes(ymin=mean.RA-se.RA,ymax=mean.RA+se.RA,width=.2),position = position_dodge(width=.9))+
+  facet_grid(seasonal.trend~Compartment,scales = "free",space = "free") +
+  scale_fill_brewer(palette = "Set1") +
+  theme_minimal()+
+  theme(panel.border = element_rect(colour = "black", fill=NA),
+        legend.position = c(0, 1), 
+        legend.justification = c(0, 1))+
+  labs(x="Days After Germination",y="Relative Abundance")
+
+
+left <- cowplot::plot_grid(a+theme(legend.position = "none"),c,nrow=2,align = "v", axis="lr", rel_heights = c(1,1.5))
+cowplot::plot_grid(left,b+theme(legend.position = "top"),ncol=2, align = "h", rel_widths = c(2.5,1))
+#cowplot::plot_grid(left,b+theme(legend.position = "bottom"),ncol=2, align = "h", rel_widths = c(2.5,1))
+```
+

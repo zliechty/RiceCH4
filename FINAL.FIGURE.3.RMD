@@ -1,0 +1,299 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(stringr)
+library(forcats)
+library(broom)
+library(tidyverse)
+```
+
+#Load in Data
+```{r}
+setwd("G:/My Drive/for desktop/NEW.pruned.samples.noT3")
+map <- readRDS("map.pruned.n3.RDS") %>%
+  mutate(Days=Days+14)
+RA_clean <- readRDS("RA_clean.pruned.n3.RDS")
+  #rare <- t(vegan::rrarefy(t(counts_clean), sample = min(colSums(counts_clean))))
+  #rare.clean <- rare[apply(rare, 1, occurence) >= ncol(rare) * 0.05,]
+rare.clean <- read.table("G:/My Drive/for desktop/NEW.pruned.samples.noT3/rare.clean.txt")
+tax <- readRDS("G:/My Drive/for desktop/tax.RDS") %>% mutate("variable" = OTU_ID)
+ark.data <- RA_clean %>% t() %>% as.data.frame() %>%
+  rownames_to_column("SampleID") %>%
+  inner_join(map,., by = "SampleID") %>%
+  gather("OTU_ID","RA", (ncol(map)+1):ncol(.))
+
+g2r <- read.table("G:/My Drive/for desktop/NEW.pruned.samples.noT3/FAPROTAX/g2r.table2",sep="\t",header=T) %>% rename(OTU_ID = record) %>%
+  filter(OTU_ID %in% row.names(RA_clean)) %>%
+  gather("trait","pres.ab",2:ncol(.))
+g2r.tax <- g2r %>%
+  filter(pres.ab==1) %>%
+  select(OTU_ID) %>% unique() %>%
+  inner_join(tax,by="OTU_ID")
+```
+
+#ENRICHED FAMILIES
+```{r}
+fam.enrich <- readRDS("G:/My Drive/for desktop/NEW.pruned.samples.noT3/fam.enrich.RDS") %>%
+  mutate(Compartment = case_when(Compartment == "ES" ~ "Endosphere",
+                                 Compartment == "RP" ~ "Rhizoplane",
+                                 Compartment == "RS" ~ "Rhizosphere")) %>%
+  mutate(ID2=paste(ID,Compartment,sep="."))
+
+setwd("G:/My Drive/for desktop/NEW.pruned.samples.noT3/DESEQ/LRT/")
+LRT.RS <- readRDS("LRT.results.RS.RDS") %>% mutate(Compartment = "Rhizosphere")
+LRT.RP <- readRDS("LRT.results.RP.RDS") %>% mutate(Compartment = "Rhizoplane")
+LRT.ES <- readRDS("LRT.results.RS.RDS") %>% mutate(Compartment = "Rhizosphere")
+
+LRT <- rbind(
+  readRDS("LRT.results.ES.RDS") %>% mutate(Compartment = "Endosphere"),
+  readRDS("LRT.results.RP.RDS") %>% mutate(Compartment = "Rhizoplane"),
+  readRDS("LRT.results.RS.RDS") %>% mutate(Compartment = "Rhizosphere")) %>% 
+  mutate(sig = ifelse(p.adjusted < 0.05, "yes", "no")) %>%
+  filter(Effect == "Cultivar") %>%
+  inner_join(tax, by = "OTU_ID")
+LRT.sig <- LRT %>% filter(sig == "yes") %>%
+  mutate(ID = paste(Phylum2,Class,Order,Family,Compartment,sep="."))%>%
+  mutate(enriched = ifelse(ID %in% fam.enrich$ID2, "yes","no"))
+```
+
+
+```{r}
+trait.number <- LRT %>% 
+  filter(sig == "yes") %>%
+  inner_join(g2r,by="OTU_ID")%>%
+  filter(pres.ab == 1) %>%
+  group_by(trait) %>%
+  count() %>%
+  rename(trait.number=n)
+
+LRT.sig.alltraits <- LRT.sig %>% 
+  filter(enriched == "yes") %>%
+  inner_join(g2r,by="OTU_ID") %>%
+  filter(pres.ab == 1)#%>%
+
+LRT.sig %>% 
+  filter(enriched == "yes") %>%
+  inner_join(g2r,by="OTU_ID")%>%
+  inner_join(trait.number,by="trait") %>%
+  group_by(trait) %>%
+  mutate(total=sum(pres.ab)) %>%
+  ungroup() %>%
+  filter(total > 0) %>%
+  group_by(OTU_ID) %>%
+  mutate(total.otu = sum(pres.ab)) %>%
+  ungroup() %>%
+  filter(total.otu > 0) %>%
+  ggplot(., aes(x=trait,y=paste(Family,OTU_ID),fill = as.factor(pres.ab)))+
+  geom_tile(color="white")+
+  scale_fill_manual(values = c("grey90","red"))+
+  theme_minimal() +
+  facet_grid(Compartment~.,scales="free",space="free")+
+  theme(axis.title.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA),
+        axis.text.x = element_text(angle=90,hjust=1,vjust = .5))+
+  labs(fill="presence")
+
+LRT.sig %>% 
+  filter(enriched == "yes") %>%
+  inner_join(g2r,by="OTU_ID")%>%
+  inner_join(trait.number,by="trait") %>%
+  group_by(trait) %>%
+  mutate(total=sum(pres.ab)) %>%
+  ungroup() %>%
+  filter(total == 1) %>%
+  group_by(OTU_ID) %>%
+  mutate(total.otu = sum(pres.ab)) %>%
+  ungroup() %>%
+  filter(total.otu > 0) %>%
+  ggplot(., aes(x=trait,y=paste(Family,OTU_ID),fill = as.factor(pres.ab)))+
+  geom_tile(color="white")+
+  scale_fill_manual(values = c("grey90","red"))+
+  theme_minimal() +
+  facet_grid(Compartment~.,scales="free",space="free")+
+  theme(axis.title.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA),
+        axis.text.x = element_text(angle=90,hjust=1,vjust = .5))+
+  labs(fill="presence")
+
+
+LRT.sig %>% 
+  filter(enriched == "yes") %>%
+  inner_join(g2r,by="OTU_ID")%>%
+  inner_join(trait.number,by="trait") %>%
+  group_by(trait) %>%
+  mutate(total=sum(pres.ab)) %>%
+  ungroup() %>%
+  filter(total > 1) %>%
+  group_by(OTU_ID) %>%
+  mutate(total.otu = sum(pres.ab)) %>%
+  ungroup() %>%
+  filter(total.otu > 0) %>%
+  mutate(trait=case_when(trait=="respiration_of_sulfur_compounds" ~ "respiration of sulfur compounds",
+                         trait=="sulfate_respiration" ~ "sulfate respiration",
+                         trait=="chemoheterotrophy"~"chemoheterotrophy",
+                         trait=="iron_respiration"~"iron respiration",
+                         trait=="fermentation"~"fermentation",
+                         trait=="dark_hydrogen_oxidation"~"dark hydrogen oxidation",
+                         trait=="reductive_acetogenesis" ~ "reductive acetogenesis")) %>%
+  mutate(trait=fct_relevel(trait,"respiration of sulfur compounds",
+                           "sulfate respiration",
+                           "iron respiration",
+                           "chemoheterotrophy",
+                           "fermentation",
+                           "dark hydrogen oxidation",
+                           "reductive acetogenesis")) %>%
+  ggplot(., aes(x=trait,y=paste(Family,OTU_ID),fill = as.factor(pres.ab)))+
+  geom_tile(color="white")+
+  scale_fill_manual(values = c("grey90","red"))+
+  theme_minimal() +
+  facet_grid(Compartment~.,scales="free",space="free")+
+  theme(axis.title.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        panel.border = element_rect(colour = "black", fill=NA),
+        axis.text.x = element_text(angle=45,hjust=1,vjust = 1))+
+#        axis.text.x = element_text(angle=90,hjust=1,vjust = .5))+
+  labs(fill="presence")#+
+
+```
+
+```{r}
+enrich.traits <- c("respiration_of_sulfur_compounds",
+                   "sulfate_respiration",
+                   "chemoheterotrophy",
+                   "fermentation",
+                   "iron_respiration",
+                   "dark_hydrogen_oxidation",
+                   "reductive_acetogenesis")
+
+g2r.e.traits <- g2r %>%
+  filter(trait %in% enrich.traits)  %>%
+  filter(pres.ab == 1)
+
+ark.e.traits <- ark.data %>%
+  filter(OTU_ID %in% g2r.e.traits$OTU_ID) %>%
+  inner_join(g2r.e.traits,by="OTU_ID") %>%
+  group_by(SampleID,Timepoint,Compartment,Cultivar,Plot,Rep,trait) %>%
+  summarise(RA=sum(RA)/10)
+
+ark.e.traits.g <- ark.e.traits %>%
+  ungroup() %>%
+  group_by(Compartment,Cultivar,Timepoint,trait) %>%
+  summarise(mean.RA=mean(RA),sd.RA=sd(RA),se.RA=sd(RA)/sqrt(n()))
+
+e.trait.graph.func <- function(x){
+  ark.e.traits.g %>%
+  filter(trait == x) %>%
+  ggplot(., aes(x=Timepoint, y= mean.RA,color=Cultivar,group=Cultivar))+
+  geom_ribbon(aes(ymin = mean.RA-se.RA, ymax = mean.RA+se.RA,fill=Cultivar,color=NA),alpha=.2) +
+  geom_line(size = 1)+
+  facet_grid(.~Compartment)+
+  scale_fill_brewer(palette = "Set1")+
+  scale_color_brewer(palette = "Set1")+
+  theme_minimal()+
+  ggtitle(x)
+}
+
+e.trait.graph.func("respiration_of_sulfur_compounds")
+e.trait.graph.func("sulfate_respiration")
+e.trait.graph.func("chemoheterotrophy")
+e.trait.graph.func("fermentation")
+e.trait.graph.func("iron_respiration")
+e.trait.graph.func("dark_hydrogen_oxidation")
+e.trait.graph.func("reductive_acetogenesis")
+```
+
+
+```{r}
+trait.anova <- readRDS("G:/My Drive/for desktop/NEW.pruned.samples.noT3/FAPROTAX.trait.ANOVA.RDS") %>%
+  filter(!trait %in% c("methanogenesis","methanotrophy")) %>%
+  mutate(p.print = paste("P =",round(p.cult.fdr,3))) %>%
+  mutate(bold=ifelse(p.cult.fdr < .05,2,1)) %>%
+  mutate(asterisk = case_when(p.cult.fdr < .001 ~ "***",
+                              p.cult.fdr < .01 ~ "**",
+                              p.cult.fdr < .05 ~ "*",
+                              TRUE ~ "")) %>%
+  mutate(trait = case_when(trait == "chemoheterotrophy" ~ "Chemoheterotrophy",
+                           trait == "dark_hydrogen_oxidation" ~ "Hydrogen\nOxidation",
+                           trait == "fermentation" ~ "Fermentation",
+                           trait == "iron_respiration" ~ "Iron\nRespiration",
+                           trait == "reductive_acetogenesis" ~ "Reductive\nAcetogenesis",
+                           trait == "sulfate_respiration" ~ "Sulfate\nRespiration")) %>%
+  mutate(trait = fct_relevel(trait,"Chemoheterotrophy","Fermentation","Hydrogen\nOxidation","Reductive\nAcetogenesis","Iron\nRespiration","Sulfate\nRespiration")) %>%
+  mutate(Compartment = ifelse(Compartment == "Rhizosphere","Rhizosphere and\nBulk Soil",as.character(Compartment))) %>%
+  mutate(Compartment = fct_relevel(Compartment,"Rhizosphere and\nBulk Soil","Rhizoplane","Endosphere"))
+
+ark.e.traits.g %>%
+  ungroup() %>%
+  filter(trait != "respiration_of_sulfur_compounds") %>%
+  mutate(trait = case_when(trait == "chemoheterotrophy" ~ "Chemoheterotrophy",
+                           trait == "dark_hydrogen_oxidation" ~ "Hydrogen\nOxidation",
+                           trait == "fermentation" ~ "Fermentation",
+                           trait == "iron_respiration" ~ "Iron\nRespiration",
+                           trait == "reductive_acetogenesis" ~ "Reductive\nAcetogenesis",
+                           trait == "sulfate_respiration" ~ "Sulfate\nRespiration")) %>%
+  mutate(Compartment = case_when(Compartment == "Bulk Soil" ~ "Rhizosphere and\nBulk Soil",
+                                 Compartment == "Rhizosphere"~ "Rhizosphere and\nBulk Soil",
+                                 Compartment == "Endosphere" ~ "Endosphere",
+                                 Compartment == "Rhizoplane" ~ "Rhizoplane")) %>%
+  mutate(Compartment = fct_relevel(Compartment,"Rhizosphere and\nBulk Soil","Rhizoplane","Endosphere"))%>%
+  mutate(trait = fct_relevel(trait,"Chemoheterotrophy","Fermentation","Hydrogen\nOxidation","Reductive\nAcetogenesis","Iron\nRespiration","Sulfate\nRespiration")) %>%
+  mutate(Timepoint = Timepoint*14) %>%
+  ggplot(., aes())+
+  geom_ribbon(aes(x=Timepoint,ymin = mean.RA-se.RA, ymax = mean.RA+se.RA,fill=Cultivar,group=Cultivar),alpha=.2, color=NA) +
+  geom_line(size = 1,aes(x=Timepoint, y= mean.RA,color=Cultivar,group=Cultivar))+
+  facet_grid(trait~Compartment,scales = "free")+
+  scale_fill_brewer(palette = "Set1")+
+  scale_color_brewer(palette = "Set1")+
+  ggnewscale::new_scale_color() +
+  geom_text(data=trait.anova,aes(x=-Inf,y=Inf,hjust=-0.2,vjust=1.6,label=p.print,color=p.cult.fdr.sig,fontface=bold),show.legend = FALSE)+
+  scale_color_manual(values = c("grey50","red"))+
+  theme_minimal()+
+  labs(x="Days After Germination",y="Relative Abundance")+
+  theme(panel.border = element_rect(colour = "black", fill=NA))
+
+
+
+ark.e.traits.g %>%
+  ungroup() %>%
+  filter(trait != "respiration_of_sulfur_compounds") %>%
+  mutate(trait = case_when(trait == "chemoheterotrophy" ~ "Chemoheterotrophy",
+                           trait == "dark_hydrogen_oxidation" ~ "Hydrogen\nOxidation",
+                           trait == "fermentation" ~ "Fermentation",
+                           trait == "iron_respiration" ~ "Iron\nRespiration",
+                           trait == "reductive_acetogenesis" ~ "Reductive\nAcetogenesis",
+                           trait == "sulfate_respiration" ~ "Sulfate\nRespiration")) %>%
+  mutate(Compartment = case_when(Compartment == "Bulk Soil" ~ "Rhizosphere and\nBulk Soil",
+                                 Compartment == "Rhizosphere"~ "Rhizosphere and\nBulk Soil",
+                                 Compartment == "Endosphere" ~ "Endosphere",
+                                 Compartment == "Rhizoplane" ~ "Rhizoplane")) %>%
+  mutate(Compartment = fct_relevel(Compartment,"Rhizosphere and\nBulk Soil","Rhizoplane","Endosphere"))%>%
+  mutate(trait = fct_relevel(trait,"Chemoheterotrophy","Fermentation","Hydrogen\nOxidation","Reductive\nAcetogenesis","Iron\nRespiration","Sulfate\nRespiration")) %>%
+  mutate(Timepoint = Timepoint*14) %>%
+  ggplot(., aes())+
+  geom_ribbon(aes(x=Timepoint,ymin = mean.RA-se.RA, ymax = mean.RA+se.RA,fill=Cultivar,group=Cultivar),alpha=.2, color=NA) +
+  geom_line(size = 1,aes(x=Timepoint, y= mean.RA,color=Cultivar,group=Cultivar))+
+  facet_grid(trait~Compartment,scales = "free")+
+  scale_fill_brewer(palette = "Set1")+
+  scale_color_brewer(palette = "Set1")+
+  geom_text(data=trait.anova,aes(x=60,y=Inf,vjust=1.2,label=asterisk,fontface=bold),show.legend = FALSE,size=7)+
+  theme_minimal()+
+  labs(x="Days After Germination",y="Relative Abundance")+
+  theme(panel.border = element_rect(colour = "black", fill=NA))
+
+
+
+trait.colors <- data.frame(trait.orig = c("chemoheterotrophy","fermentation","iron_respiration","sulfate_respiration",
+                                     "respiration_of_sulfur_compounds","dark_hydrogen_oxidation","reductive_acetogenesis"),
+                           trait = c("Chemoheterotrophy","Fermentation","Iron\nRespiration","Sulfate\nRespiration",
+                                     "Respiration of\nSulfur Compounds","Hydrogen\nOxidation","Reductive\nAcetogenesis"),
+                           trait.color = RColorBrewer::brewer.pal(7,"Accent"))
+
+```
+
+
+
