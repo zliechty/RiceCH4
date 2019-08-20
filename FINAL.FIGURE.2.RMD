@@ -8,13 +8,10 @@ library(tidyverse)
 ```
 
 ```{r}
-setwd("G:/My Drive/for desktop/")
-tax <- readRDS("tax.RDS") %>% mutate("variable" = OTU_ID)
-
-setwd("G:/My Drive/for desktop/NEW.pruned.samples.noT3")
-map <- readRDS("map.pruned.n3.RDS")
-counts_clean <- readRDS("counts_clean.pruned.n3.RDS")
-RA_clean <- readRDS("RA_clean.pruned.n3.RDS")
+tax <- readRDS("data/tax.RDS") %>% mutate("variable" = OTU_ID)
+map <- readRDS("data/map.pruned.n3.RDS")
+counts_clean <- readRDS("data/counts_clean.pruned.n3.RDS")
+RA_clean <- readRDS("data/RA_clean.pruned.n3.RDS")
 ```
 
 ```{r}
@@ -24,7 +21,7 @@ ark.data <- melt(cbind(map, t(RA_clean)), id.vars = names(map)) %>%
 ```
 
 ```{r}
-LRT.RS.mg <- readRDS("G:/My Drive/for desktop/NEW.pruned.samples.noT3/DESEQ/LRT/LRT.results.RS.RDS") %>% 
+LRT.RS.mg <- readRDS("data/LRT.results.RS.RDS") %>% 
   filter(p.adjusted < 0.05) %>%
     mutate(asterisk = case_when(p.adjusted < .001 ~ "***",
                               p.adjusted < .01 ~ "**",
@@ -66,7 +63,7 @@ ark.data %>%
 
 #make g2r.mgmt and g2r.mg
 ```{r}
-g2r <- read.table("G:/My Drive/for desktop/NEW.pruned.samples.noT3/FAPROTAX/g2r.table2",sep="\t",header=T) %>% 
+g2r <- readRDS("data/g2r.table2.RDS",sep="\t",header=T) %>% 
   rename(OTU_ID = record) %>%
   filter(OTU_ID %in% row.names(RA_clean)) %>%
   gather("trait","pres.ab",2:ncol(.))
@@ -78,7 +75,6 @@ g2r.mgmt <- g2r %>%
   arrange(Kingdom,Phylum,Class,Order,Family,Genus,Species)
 g2r.mg <- g2r.mgmt %>%
   filter(trait == "methanogenesis")
-
 ```
 
 ```{r}
@@ -196,7 +192,7 @@ a <- ark.data %>%
   
 
 
-trait.anova <- readRDS("G:/My Drive/for desktop/NEW.pruned.samples.noT3/FAPROTAX.trait.ANOVA.RDS") %>%
+trait.anova <- readRDS("data/FAPROTAX.trait.ANOVA.RDS") %>%
   filter(trait %in% c("methanogenesis","methanotrophy")) %>%
   mutate(p.print = paste("P =",round(p.cult.fdr,3))) %>%
   mutate(bold=ifelse(p.cult.fdr < .05,2,1)) %>%
