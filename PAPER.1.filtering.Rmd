@@ -1,0 +1,207 @@
+---
+title: "Methane Paper 1 - Filtering"
+output: html_notebook
+---
+
+# Load in Data
+```{r}
+library(lubridate)
+library(tidyverse)
+library(vegan)
+library(lsmeans)
+```
+
+```{r}
+setwd("G:/My Drive/Sundar Lab/16S work/6.ARK_RP/ARK_ALL/or_uc/")
+counts <- read.table("otu_table.txt", header = T, row.names = 1, sep = "\t")
+
+setwd("G:/My Drive/Sundar Lab/16S work/6.ARK_RP/ARK_ALL/")
+map <- read.table("ark.all.map.txt", header = T, sep = "\t") %>% 
+  mutate(Date = mdy(Date)) %>% mutate(Days = as.numeric(Date - min(Date)))
+tax <- readRDS("tax.RDS") %>% mutate("variable" = OTU_ID)
+
+
+map$Compartment <- factor(map$Compartment, levels = c("Bulk Soil", "Rhizosphere", "Rhizoplane", "Endosphere"))
+
+map <- map %>% arrange(Cultivar,Compartment,Timepoint,Plot,Rep) 
+map <- cbind(map, as.factor(c(1:184,1:184,1:64)))
+colnames(map)[11] <- "SampleID2"
+```
+
+#Filter
+## Remove organellar reads from the data
+```{r}
+tax.NoOrg <- tax %>% filter(Class != "Chloroplast") %>% filter(Family != "mitochondria")
+tax.Org <- tax %>% filter(!OTU_ID %in% tax.NoOrg$OTU_ID)
+countsNoOrg <- counts[row.names(counts)%in%tax.NoOrg$OTU_ID,]
+```
+
+## Normalize the counts table
+```{r}
+RA <- t(t(countsNoOrg) / colSums(countsNoOrg)) * 1000
+```
+
+## Identify samples with large Gammaproteobacteria Spikes 
+These are likely contamination due to
+```{r}
+library(reshape2)
+ark.data <- melt(cbind(map, t(RA)), id.vars = names(map)) %>% 
+  inner_join(tax, by = "variable")
+```
+
+```{r}
+ark.data.p <- ark.data %>%
+  group_by(SampleID, Compartment, Cultivar, Plot, Phylum2, Timepoint, Rep) %>% 
+  summarise(total = sum(value)) %>%
+  ungroup() %>%
+  filter(Compartment != "Bulk Soil") %>%
+  select(-SampleID) %>%
+  spread(Compartment,total)
+
+ark.gamma <- ark.data.p %>% 
+  filter(Phylum2 == "Gammaproteobacteria")
+```
+
+```{r}
+ark.gamma.gather <- ark.data %>%
+  group_by(SampleID, Compartment, Cultivar, Plot, Phylum2, Timepoint, Rep) %>% 
+  summarise(total = sum(value)) %>%
+  ungroup() %>%
+  filter(Phylum2 == "Gammaproteobacteria")
+gamma.stats <- ark.gamma.gather %>% 
+  group_by(Compartment) %>%
+  summarise(avg.RA = mean(total), sd.RA = sd(total))
+gamma.stats
+
+```
+
+```{r}
+ark.gamma.gather2 <- ark.gamma.gather %>%
+  inner_join(.,gamma.stats, by = "Compartment") %>%
+  mutate(new.status = ifelse(total > avg.RA + 2 * sd.RA, "bad", "good"))
+
+```
+
+```{r}
+ark.gamma.gather2 %>% filter(Compartment == "Rhizosphere") %>%
+  ggplot(., aes(x=SampleID,y=total,fill=new.status))+geom_bar(stat = "identity")  
+ark.gamma.gather2 %>% filter(Compartment == "Rhizoplane") %>%
+  ggplot(., aes(x=SampleID,y=total,fill=new.status))+geom_bar(stat = "identity") 
+ark.gamma.gather2 %>% filter(Compartment == "Endosphere") %>%
+  ggplot(., aes(x=SampleID,y=total,fill=new.status))+geom_bar(stat = "identity") 
+```
+
+```{r}
+bad.new <- ark.gamma.gather2 %>% filter(new.status == "bad") %>%
+  mutate(join.key = paste(Cultivar, Plot, Timepoint, Rep))
+ark.gamma.new.bad <- ark.gamma %>% 
+  mutate(join.key = paste(Cultivar, Plot, Timepoint, Rep)) %>%
+  filter(join.key %in% bad.new$join.key)
+```
+
+###look at correlation of gamma spikes - no correlation between compartments
+```{r}
+ggplot(ark.gamma.new.bad, aes(x=Rhizosphere/10,y=Endosphere/10)) +
+  geom_point()
+ggplot(ark.gamma.new.bad, aes(x=Rhizosphere/10,y=Rhizoplane/10)) +
+  geom_point()
+ggplot(ark.gamma.new.bad, aes(x=Rhizoplane/10,y=Endosphere/10)) +
+  geom_point()
+cor.test(ark.gamma.new.bad$Rhizosphere,ark.gamma.new.bad$Endosphere)
+cor.test(ark.gamma.new.bad$Rhizosphere,ark.gamma.new.bad$Rhizoplane)
+cor.test(ark.gamma.new.bad$Rhizoplane,ark.gamma.new.bad$Endosphere)
+
+```
+
+###Save list of samples to remove
+```{r}
+new.bad.samples <- ark.gamma.gather2 %>% filter(new.status == "bad") %>% select(SampleID)
+#saveRDS(new.bad.samples, "G:/My Drive/for desktop/NEW.pruned.samples.noT3/new.bad.samples.RDS")
+```
+
+
+
+##Remove gammaproteo-spike samples, as well as Timepoint 3
+There is no Timepoint 3 in the Rhizoplane samples, so I am removing that Timepoint from everything to be consistent
+```{r}
+map <- map %>% 
+  filter(!SampleID %in% new.bad.samples$SampleID) %>%
+  filter(Timepoint != 3)
+countsNoOrg <- countsNoOrg[,colnames(countsNoOrg) %in% map$SampleID]
+RA <- RA[,colnames(RA) %in% map$SampleID]
+```
+
+## Make sure the mapping file is in the same order as the counts and check Depth of remaining Samples
+```{r}
+map <- map[match(colnames(countsNoOrg), map$SampleID),]
+map$Depth <- colSums(countsNoOrg)
+map %>% 
+  ggplot(., aes(Depth, fill = Compartment)) +
+  geom_histogram()
+```
+
+
+## Remove OTUs that do not show up in 5% of the samples
+```{r}
+occurence <- function(x){
+  return(length(x[x > 0]))
+}
+RA_clean <- RA[apply(RA, 1, occurence) >= ncol(RA) * 0.05,]
+cat(nrow(RA), "OTUs in original table.\n")
+cat(nrow(RA_clean), "OTUs in cleaned table.\n")
+
+counts_clean <- countsNoOrg[row.names(countsNoOrg) %in% row.names(RA_clean),]
+```
+
+
+# Create OTU table grouped by methanogens for downstream analysis
+##extract methanogen and methanotroph OTUs
+```{r}
+tax <- readRDS("tax.RDS")
+tax.mt <-tax %>% 
+  filter(Family == "Methylocystaceae" | Family == "Methylococcaceae") %>% 
+  filter(Genus != "Pleomorphomonas")
+tax.mg <- tax %>% 
+  filter(grepl("Methan", Order))
+```
+
+```{r}
+otu.tidy <- as.data.frame(t(otu)) %>% 
+  add_rownames("SampleID") %>% 
+  inner_join(map,.,by ="SampleID") %>% 
+  gather("OTU_ID","counts",(ncol(map)+1):(ncol(map)+nrow(otu))) %>%
+  mutate(OTU_ID2 = ifelse(OTU_ID %in% tax.mg$OTU_ID, "Methanogen",OTU_ID))
+```
+
+```{r}
+otu.tidy.g <- otu.tidy %>%
+  group_by(SampleID,OTU_ID2) %>%
+  summarise(counts = sum(counts))
+counts.mg.g <- otu.tidy.g %>%
+  spread(OTU_ID2,counts) %>%
+  column_to_rownames("SampleID") %>%
+  as.matrix() %>% t()
+```
+
+
+#Save files for further analysis
+```{r}
+#setwd("G:/My Drive/for desktop/NEW.pruned.samples.noT3/")
+#saveRDS(counts_clean, "counts_clean.pruned.n3.RDS")
+#saveRDS(RA_clean , "RA_clean.pruned.n3.RDS")
+#saveRDS(map, "map.pruned.n3")
+#saveRDS(counts.mg.g, "counts.mg.g.RDS")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
