@@ -1,0 +1,179 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(lsmeans)
+library(tidyverse)
+```
+
+
+```{r}
+setwd("G:/My Drive/Aerenchyma Time Course")
+pyc <- rbind(read.table("T1.pyc.txt", header = T, sep = "\t"),
+            read.table("T2.pyc.txt", header = T, sep = "\t"),
+            read.table("T3.pyc.txt", header = T, sep = "\t"),
+            read.table("T4.pyc.txt", header = T, sep = "\t")) %>%
+  filter(Percent_Airspace > 20)
+pyc.bysample <- pyc %>% 
+  group_by(Timepoint,Cultivar,Tub,sample) %>%
+  summarise_at(c("Percent_Airspace","Roots"), mean) %>% ungroup()
+```
+
+```{r}
+order <- data.frame(sample=1:8,order=seq(from=-.25,to=.25,length.out = 8))
+pyc %>%
+  inner_join(order,by="sample") %>%
+  mutate(sample2 = as.factor(sample)) %>%
+  mutate(sample2 = fct_relevel(sample2, "1","2","3","4","5","6","7","8")) %>%
+ggplot(.,aes(x=Cultivar,y=Percent_Airspace)) +
+  geom_boxplot(data = pyc.bysample, aes(y=Percent_Airspace), color="grey69")+
+  geom_point(aes(x=as.numeric(Cultivar)+order,color=sample2),size=2,alpha=.7)+
+  scale_color_brewer(palette = "PRGn")+
+  facet_grid(.~Timepoint)+
+  theme_minimal()+
+  labs(color= "Plant",y = "% Airspace")
+```
+
+```{r}
+pyc.model <- lm(Percent_Airspace ~ as.factor(Timepoint) * Cultivar, data = pyc.bysample)
+anova(pyc.model)
+summary(lsmeans(pyc.model,pairwise ~ Cultivar|as.factor(Timepoint)))$contrasts
+```
+
+```{r}
+sec <- read.table("G:/My Drive/Aerenchyma Time Course/J_image_analysis/all_section_airspace.txt", header = T, sep = "\t") #%>% #filter(!is.na(Percent_Airspace))
+
+sec.byroot <- sec %>%
+  filter(!is.na(Percent_Airspace)) %>%
+  group_by(Timepoint,Cultivar,plant,root) %>%
+  summarise("mean.Percent.Airspace" = mean(Percent_Airspace))
+sec.byplant <- sec.byroot %>%
+  ungroup() %>%
+  group_by(Timepoint,Cultivar,plant) %>%
+  summarise("mean.Percent.Airspace" = mean(mean.Percent.Airspace)) %>% ungroup()
+
+sec.colors <- RColorBrewer::brewer.pal(8,"PRGn")[c(1,3,7)]
+
+
+
+order.sec <- data.frame(sample=1:3,order=seq(from=-.25, to=.25,length.out = 3)) %>%
+  mutate()
+sec.byroot %>%
+  inner_join(order.sec,by=c("plant"="sample")) %>%
+  mutate(plant2 = as.factor(as.character(plant))) %>%
+  mutate(plant2 = fct_relevel(plant2,"1","2","3","4")) %>%
+  ggplot(., aes(x=Cultivar,y=mean.Percent.Airspace*100)) +
+  geom_boxplot(data = sec.byplant, aes(y=mean.Percent.Airspace*100), color = "grey69")+
+  geom_point(aes(x = as.numeric(Cultivar)+order,color=plant2),size=2,alpha=.7)+
+  scale_color_manual(values = sec.colors)+
+  facet_grid(.~Timepoint)+
+  theme_minimal() +
+  labs(color="Plant",y="% Airspace")
+
+sec %>%
+  inner_join(order.sec,by=c("plant"="sample")) %>%
+  mutate(plant2 = as.factor(as.character(plant))) %>%
+  mutate(plant2 = fct_relevel(plant2,"1","2","3","4")) %>%
+#  group_by(Cultivar,Timepoint) %>%
+#  arrange(plant,root)
+  ggplot(., aes(x=Cultivar,y=Percent_Airspace*100)) +
+  geom_boxplot(data = sec.byplant, aes(y=mean.Percent.Airspace*100), color = "grey69")+
+  geom_point(aes(x = as.numeric(Cultivar)+order,color=as.factor(roots_rep)),size=2)+
+  scale_color_manual(values = sec.colors2)+
+  scale_color_brewer(palette = "PRGn")+
+  facet_grid(.~Timepoint)+
+  theme_minimal() +
+  labs(color="Root",y="% Airspace")
+
+
+sec.filt <- read.table("G:/My Drive/Aerenchyma Time Course/J_image_analysis/all_section_airspace.txt", header = T, sep = "\t") %>% 
+  filter(is.na(notes)|notes == "perfect image")
+
+sec.filt.byroot <- sec.filt %>%
+  filter(!is.na(Percent_Airspace)) %>%
+  group_by(Timepoint,Cultivar,plant,root) %>%
+  summarise("mean.Percent.Airspace" = mean(Percent_Airspace)) %>% ungroup()
+sec.filt.byplant <- sec.filt.byroot %>%
+  ungroup() %>%
+  group_by(Timepoint,Cultivar,plant) %>%
+  summarise("mean.Percent.Airspace" = mean(mean.Percent.Airspace)) %>% ungroup()
+
+sec.filt.colors <- RColorBrewer::brewer.pal(8,"PRGn")[c(1,3,7)]
+order.sec.filt <- data.frame(sample=1:3,order=seq(from=-.25, to=.25,length.out = 3))
+sec.filt.byroot %>%
+  inner_join(order.sec.filt,by=c("plant"="sample")) %>%
+  mutate(plant2 = as.factor(as.character(plant))) %>%
+  mutate(plant2 = fct_relevel(plant2,"1","2","3","4")) %>%
+  ggplot(., aes(x=Cultivar,y=mean.Percent.Airspace*100)) +
+  geom_boxplot(data = sec.filt.byplant, aes(y=mean.Percent.Airspace*100), color = "grey69")+
+  geom_point(aes(x = as.numeric(Cultivar)+order,color=plant2),size=2,alpha=.7)+
+  scale_color_manual(values = sec.filt.colors)+
+  facet_grid(.~Timepoint)+
+  theme_minimal() +
+  labs(color="Plant",y="% Airspace")
+
+sec.filt %>%
+  inner_join(order.sec.filt,by=c("plant"="sample")) %>%
+  mutate(plant2 = as.factor(as.character(plant))) %>%
+  mutate(plant2 = fct_relevel(plant2,"1","2","3","4")) %>%
+  ggplot(., aes(x=Cultivar,y=Percent_Airspace*100)) +
+  geom_boxplot(data = sec.filt.byplant, aes(y=mean.Percent.Airspace*100), color = "grey69")+
+  geom_point(aes(x = as.numeric(Cultivar)+order,color=as.factor(roots_rep)),size=2)+
+  scale_color_manual(values = sec.filt.colors2)+
+  scale_color_brewer(palette = "PRGn")+
+  facet_grid(.~Timepoint)+
+  theme_minimal() +
+  labs(color="Root",y="% Airspace")
+```
+
+```{r}
+sec.model <- lm(mean.Percent.Airspace ~ as.factor(Timepoint) * Cultivar, data = sec.byplant)
+anova(sec.model)
+
+sec.filt.model <- lm(mean.Percent.Airspace ~ as.factor(Timepoint) * Cultivar, data = sec.filt.byplant)
+anova(sec.filt.model)
+
+```
+
+```{r}
+sec.filt.T4 <- sec.filt 
+```
+
+
+```{r}
+airspace.total <- rbind(pyc %>% mutate(SampleID = paste(Cultivar,Timepoint,sample,subsample,sep="."),Method = "Pycnometer") %>%
+                          select(SampleID,Cultivar,Timepoint,Method,Percent_Airspace),
+                        sec.filt %>% mutate(Method = "Sections") %>%
+                          select(SampleID,Cultivar,Timepoint,Method,Percent_Airspace)) %>%
+  mutate(Percent_Airspace = ifelse(Percent_Airspace > 1, Percent_Airspace, Percent_Airspace*100))
+airspace.total.bysample <- rbind(pyc.bysample %>% mutate(Method = "Pycnometer") %>% 
+                                  select(Cultivar,Timepoint,Method,Percent_Airspace),
+                                 sec.filt.byplant %>% mutate(Method = "Sections") %>%
+                                   select(Cultivar,Timepoint,Method,Percent_Airspace=mean.Percent.Airspace)) %>%
+  mutate(Percent_Airspace = ifelse(Percent_Airspace > 1, Percent_Airspace, Percent_Airspace*100)) %>%
+  group_by(Cultivar,Timepoint,Method) %>%
+  summarise(Percent_Airspace = mean(Percent_Airspace))
+
+ggplot(airspace.total, aes(x=as.factor(Timepoint),y=Percent_Airspace,color=Cultivar))+
+  geom_line(data=airspace.total.bysample, aes(group=Cultivar),size = 1) +
+  geom_jitter(width = .2, alpha = .5) +
+#  facet_grid(Method~.)+
+  facet_grid(.~Method)+
+  scale_color_brewer(palette = "Set1")+
+  theme_bw() +
+  labs(x="Timepoint",y = "% Airspace")
+
+ggplot(airspace.total, aes(x=as.factor(Timepoint),y=Percent_Airspace,color=Cultivar))+
+  geom_line(data=airspace.total.bysample, aes(group=Cultivar),size = 1) +
+  geom_jitter(width = .2, alpha = .5) +
+  facet_grid(Method~.)+
+#  facet_grid(.~Method)+
+  scale_color_brewer(palette = "Set1")+
+  theme_bw() +
+  labs(x="Timepoint",y = "% Airspace")
+```
+
+
