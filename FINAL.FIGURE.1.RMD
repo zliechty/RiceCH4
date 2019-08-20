@@ -12,14 +12,12 @@ library(ape)
 ```
 
 ```{r}
-setwd("G:/My Drive/for desktop/")
-tax <- readRDS("tax.RDS") %>% mutate("variable" = OTU_ID)
+tax <- readRDS("data/tax.RDS") %>% mutate("variable" = OTU_ID)
 
-setwd("G:/My Drive/for desktop/NEW.pruned.samples.noT3")
-map <- readRDS("map.pruned.n3.RDS") %>%
+map <- readRDS("data/map.pruned.n3.RDS") %>%
   mutate(Days=Days+14)
-counts_clean <- readRDS("counts_clean.pruned.n3.RDS")
-RA_clean <- readRDS("RA_clean.pruned.n3.RDS")
+counts_clean <- readRDS("data/counts_clean.pruned.n3.RDS")
+RA_clean <- readRDS("data/RA_clean.pruned.n3.RDS")
 ```
 
 ```{r}
@@ -69,11 +67,10 @@ ark.pc_axes %>%
 
 
 ```{r}
-setwd("G:/My Drive/for desktop/NEW.pruned.samples.noT3/DESEQ/LRT/")
 LRT <- rbind(
-  readRDS("LRT.results.ES.RDS") %>% mutate(Compartment = "Endosphere"),
-  readRDS("LRT.results.RP.RDS") %>% mutate(Compartment = "Rhizoplane"),
-  readRDS("LRT.results.RS.RDS") %>% mutate(Compartment = "Rhizosphere")) %>% 
+  readRDS("data/LRT.results.ES.RDS") %>% mutate(Compartment = "Endosphere"),
+  readRDS("data/LRT.results.RP.RDS") %>% mutate(Compartment = "Rhizoplane"),
+  readRDS("data/LRT.results.RS.RDS") %>% mutate(Compartment = "Rhizosphere")) %>% 
   filter(p.adjusted < 0.05) %>%
   filter(Effect == "Cultivar") %>%
   inner_join(tax, by = "OTU_ID")
@@ -84,9 +81,9 @@ LRT.ES <- LRT %>% filter(Compartment == "Endosphere")
 
 ```{r}
 setwd("G:/My Drive/for desktop/NEW.pruned.samples.noT3/DESEQ/WT/")
-WT.RS <- readRDS("WT.results.lfs.RS.RDS") %>% filter(OTU_ID %in% LRT.RS$OTU_ID) %>% select(Timepoint,Compartment,OTU_ID,LogFC=estimate)
-WT.RP <- readRDS("WT.results.lfs.RP.RDS") %>% filter(OTU_ID %in% LRT.RP$OTU_ID) %>% select(Timepoint,Compartment,OTU_ID,LogFC=estimate)
-WT.ES <- readRDS("WT.results.lfs.ES.RDS") %>% filter(OTU_ID %in% LRT.ES$OTU_ID) %>% select(Timepoint,Compartment,OTU_ID,LogFC=estimate)
+WT.RS <- readRDS("data/WT.results.lfs.RS.RDS") %>% filter(OTU_ID %in% LRT.RS$OTU_ID) %>% select(Timepoint,Compartment,OTU_ID,LogFC=estimate)
+WT.RP <- readRDS("data/WT.results.lfs.RP.RDS") %>% filter(OTU_ID %in% LRT.RP$OTU_ID) %>% select(Timepoint,Compartment,OTU_ID,LogFC=estimate)
+WT.ES <- readRDS("data/WT.results.lfs.ES.RDS") %>% filter(OTU_ID %in% LRT.ES$OTU_ID) %>% select(Timepoint,Compartment,OTU_ID,LogFC=estimate)
 ```
 
 
