@@ -14,9 +14,9 @@ library(lsmeans)
 ```{r}
 counts <- readRDS("data/otu.table.RDS")
 
-map <- read.table("ark.all.map.txt", header = T, sep = "\t") %>% 
+map <- read.table("data/ark.all.map.txt", header = T, sep = "\t") %>% 
   mutate(Date = mdy(Date)) %>% mutate(Days = as.numeric(Date - min(Date)))
-tax <- readRDS("tax.RDS") %>% mutate("variable" = OTU_ID)
+tax <- readRDS("data/tax.RDS") %>% mutate("variable" = OTU_ID)
 
 
 map$Compartment <- factor(map$Compartment, levels = c("Bulk Soil", "Rhizosphere", "Rhizoplane", "Endosphere"))
