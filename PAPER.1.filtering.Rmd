@@ -12,10 +12,8 @@ library(lsmeans)
 ```
 
 ```{r}
-setwd("G:/My Drive/Sundar Lab/16S work/6.ARK_RP/ARK_ALL/or_uc/")
-counts <- read.table("otu_table.txt", header = T, row.names = 1, sep = "\t")
+counts <- readRDS("data/otu.table.RDS")
 
-setwd("G:/My Drive/Sundar Lab/16S work/6.ARK_RP/ARK_ALL/")
 map <- read.table("ark.all.map.txt", header = T, sep = "\t") %>% 
   mutate(Date = mdy(Date)) %>% mutate(Days = as.numeric(Date - min(Date)))
 tax <- readRDS("tax.RDS") %>% mutate("variable" = OTU_ID)
@@ -42,7 +40,7 @@ RA <- t(t(countsNoOrg) / colSums(countsNoOrg)) * 1000
 ```
 
 ## Identify samples with large Gammaproteobacteria Spikes 
-These are likely contamination due to
+These are likely contamination
 ```{r}
 library(reshape2)
 ark.data <- melt(cbind(map, t(RA)), id.vars = names(map)) %>% 
