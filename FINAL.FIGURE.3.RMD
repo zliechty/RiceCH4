@@ -12,20 +12,16 @@ library(tidyverse)
 
 #Load in Data
 ```{r}
-setwd("G:/My Drive/for desktop/NEW.pruned.samples.noT3")
-map <- readRDS("map.pruned.n3.RDS") %>%
+map <- readRDS("data/map.pruned.n3.RDS") %>%
   mutate(Days=Days+14)
-RA_clean <- readRDS("RA_clean.pruned.n3.RDS")
-  #rare <- t(vegan::rrarefy(t(counts_clean), sample = min(colSums(counts_clean))))
-  #rare.clean <- rare[apply(rare, 1, occurence) >= ncol(rare) * 0.05,]
-rare.clean <- read.table("G:/My Drive/for desktop/NEW.pruned.samples.noT3/rare.clean.txt")
-tax <- readRDS("G:/My Drive/for desktop/tax.RDS") %>% mutate("variable" = OTU_ID)
+RA_clean <- readRDS("data/RA_clean.pruned.n3.RDS")
+tax <- readRDS("data/tax.RDS") %>% mutate("variable" = OTU_ID)
 ark.data <- RA_clean %>% t() %>% as.data.frame() %>%
   rownames_to_column("SampleID") %>%
   inner_join(map,., by = "SampleID") %>%
   gather("OTU_ID","RA", (ncol(map)+1):ncol(.))
 
-g2r <- read.table("G:/My Drive/for desktop/NEW.pruned.samples.noT3/FAPROTAX/g2r.table2",sep="\t",header=T) %>% rename(OTU_ID = record) %>%
+g2r <- readRDS(data/g2r.table2.RDS") %>% rename(OTU_ID = record) %>%
   filter(OTU_ID %in% row.names(RA_clean)) %>%
   gather("trait","pres.ab",2:ncol(.))
 g2r.tax <- g2r %>%
@@ -36,21 +32,20 @@ g2r.tax <- g2r %>%
 
 #ENRICHED FAMILIES
 ```{r}
-fam.enrich <- readRDS("G:/My Drive/for desktop/NEW.pruned.samples.noT3/fam.enrich.RDS") %>%
+fam.enrich <- readRDS("data/fam.enrich.RDS") %>%
   mutate(Compartment = case_when(Compartment == "ES" ~ "Endosphere",
                                  Compartment == "RP" ~ "Rhizoplane",
                                  Compartment == "RS" ~ "Rhizosphere")) %>%
   mutate(ID2=paste(ID,Compartment,sep="."))
 
-setwd("G:/My Drive/for desktop/NEW.pruned.samples.noT3/DESEQ/LRT/")
-LRT.RS <- readRDS("LRT.results.RS.RDS") %>% mutate(Compartment = "Rhizosphere")
-LRT.RP <- readRDS("LRT.results.RP.RDS") %>% mutate(Compartment = "Rhizoplane")
-LRT.ES <- readRDS("LRT.results.RS.RDS") %>% mutate(Compartment = "Rhizosphere")
+LRT.RS <- readRDS("data/LRT.results.RS.RDS") %>% mutate(Compartment = "Rhizosphere")
+LRT.RP <- readRDS("data/LRT.results.RP.RDS") %>% mutate(Compartment = "Rhizoplane")
+LRT.ES <- readRDS("data/LRT.results.RS.RDS") %>% mutate(Compartment = "Rhizosphere")
 
 LRT <- rbind(
-  readRDS("LRT.results.ES.RDS") %>% mutate(Compartment = "Endosphere"),
-  readRDS("LRT.results.RP.RDS") %>% mutate(Compartment = "Rhizoplane"),
-  readRDS("LRT.results.RS.RDS") %>% mutate(Compartment = "Rhizosphere")) %>% 
+  readRDS("data/LRT.results.ES.RDS") %>% mutate(Compartment = "Endosphere"),
+  readRDS("data/LRT.results.RP.RDS") %>% mutate(Compartment = "Rhizoplane"),
+  readRDS("data/LRT.results.RS.RDS") %>% mutate(Compartment = "Rhizosphere")) %>% 
   mutate(sig = ifelse(p.adjusted < 0.05, "yes", "no")) %>%
   filter(Effect == "Cultivar") %>%
   inner_join(tax, by = "OTU_ID")
