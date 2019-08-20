@@ -13,25 +13,24 @@ library(tidyverse)
 ```
 
 ```{r}
-setwd("G:/My Drive/for desktop/NEW.pruned.samples.noT3")
-map <- readRDS("map.pruned.n3.RDS") %>%
+map <- readRDS("data/map.pruned.n3.RDS") %>%
   mutate(Days=Days+14)
-counts_clean <- readRDS("counts_clean.pruned.n3.RDS")
-RA_clean <- readRDS("RA_clean.pruned.n3.RDS")
-tax <- readRDS("G:/My Drive/for desktop/tax.RDS") %>% mutate("variable" = OTU_ID)
+counts_clean <- readRDS("data/counts_clean.pruned.n3.RDS")
+RA_clean <- readRDS("data/RA_clean.pruned.n3.RDS")
+tax <- readRDS("data/tax.RDS") %>% mutate("variable" = OTU_ID)
 
-LRT.C <- readRDS("G:/My Drive/for desktop/NEW.pruned.samples.noT3/DESEQ/LRT.RSBS/LRT.results.C.RDS") %>%
+LRT.C <- readRDS("data/LRT.results.C.RDS") %>%
   filter(Effect == "Compartment") %>% filter(p.adjusted < 0.05)
-LRT.S <- readRDS("G:/My Drive/for desktop/NEW.pruned.samples.noT3/DESEQ/LRT.RSBS/LRT.results.S.RDS") %>%
+LRT.S <- readRDS("data/LRT.results.S.RDS") %>%
   filter(Effect == "Compartment") %>% filter(p.adjusted < 0.05)
 LRT.RSBS.overlap <- LRT.C %>% filter(OTU_ID %in% LRT.S$OTU_ID)
 
-LRT.cultivar <- readRDS("G:/My Drive/for desktop/NEW.pruned.samples.noT3/DESEQ/LRT/LRT.results.RS.RDS") %>%
+LRT.cultivar <- readRDS("data/LRT.results.RS.RDS") %>%
   filter(p.adjusted < 0.05) %>%
   filter(Effect == "Cultivar") %>%
   inner_join(tax,by="OTU_ID")
 
-pwt.RSBS <- readRDS("G:/My Drive/for desktop/NEW.pruned.samples.noT3/DESEQ/compartment/WT.RSxBS.results.lfs.RDS") %>%
+pwt.RSBS <- readRDS("data/WT.RSxBS.results.lfs.RDS") %>%
   filter(OTU_ID %in% LRT.cultivar$OTU_ID) %>%
   group_by(OTU_ID,Cultivar) %>%
   summarise(avg.LogFC = mean(estimate)) %>%
@@ -106,9 +105,6 @@ my_plot2 <- ggplot(ark.data.z, aes(x=CLXL745.LogFC,y=Sabine.LogFC,shape=sig))+
   theme_minimal()+
   scale_color_brewer(palette = "Dark2")+
   labs(shape = "FDR < 0.05",x="CLXL745 Average Seasonal LogFC (RS vs. BS)",y="Sabine Average Seasonal LogFC (RS vs. BS)")
-
-#windowsFonts(Arial.Unicode.MS = windowsFont("Arial Unicode MS"))
-#windowsFonts(Papyrus = windowsFont("Papyrus"))
 
 ggsave(my_plot, filename = "example.example.pdf", device = cairo_pdf, family = "Arial Unicode MS",
        width = 8, height = 6, units = "in")
